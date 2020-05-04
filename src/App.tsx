@@ -1,24 +1,199 @@
-import React from 'react';
-import logo from './logo.svg';
-import './App.css';
+import React, { SyntheticEvent, Suspense } from "react";
+import produce from "immer";
+import short from "short-uuid";
+import PouchDB from "pouchdb-browser";
+
+import * as UsePouch from "./usePouch";
+
+import "./App.css";
+
+type Categories = { [key: string]: any }[];
+type V0CategoryData = { categories: Categories };
+type V1CategoryData = { categories: Categories, schemaVersion: 1 };
+type CategoryData = V1CategoryData;
+
+
+interface Migration<T, U> {
+  canMigrate: (data: any) => data is T,
+  hasMigrated: (data: any) => data is U,
+  migration: (data: T) => U,
+}
+
+let v1Migration: Migration<V0CategoryData, V1CategoryData> = {
+  canMigrate (data: any): data is V0CategoryData {
+    return data.categories != null && data.schemaVersion == null;
+  },
+  hasMigrated (data: any): data is V1CategoryData {
+    return data.schemaVersion === 1
+  },
+  migration (data: V0CategoryData): V1CategoryData {
+    return {...data, schemaVersion: 1};
+  },
+}
+
+function migrate<T, U>(from: T, canMigrate: (t: T) => boolean, migration: (t: T) => U): U {
+  return migration(from)
+}
+
+const fakeData: CategoryData = {
+  categories: [
+    {
+      _id: "xxxxx",
+      name: "AP Flour",
+      description: "all purpose flour",
+      tags: [],
+      "shelf life, weeks": 52,
+      perishable: false,
+      staple: true,
+    },
+  ],
+  schemaVersion: 1,
+};
+
+let db = new PouchDB("proto-pantry");
+
+let categoryData: UsePouch.Resource<CategoryData>;
+categoryData = UsePouch.readDefaultValue(db, "categories", fakeData);
 
 function App() {
+  const [data, setData] = React.useState<Categories>(fakeData.categories);
+
+  React.useEffect(() => {
+    const asyncDbPrep = async () => {
+      let storedDoc: {
+        _id: "categories";
+        _rev: string;
+        data: Categories;
+      };
+      try {
+        storedDoc = await db.get("categories");
+        setData(storedDoc.data);
+      } catch (err) {
+        console.error("no category data found, seeding with test data");
+        setData(fakeData.categories);
+        const created = await db.put({
+          id: "categories",
+          data: fakeData,
+        });
+      }
+    };
+  }, []);
+
+  const persist = React.useCallback(() => {
+    console.log("persisting db");
+    if (db && db.put) {
+    }
+  }, [data]);
+
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+    <Suspense fallback={<div>db is loading</div>}>
+      <DBLoader dataResource={categoryData} />
+      <Table data={data} setData={setData} />
+    </Suspense>
+  );
+}
+
+function DBLoader({
+  dataResource,
+}: {
+  dataResource: UsePouch.Resource<CategoryData>;
+}) {
+  let data = dataResource.read();
+  return <div>data items: {data.categories.length}</div>;
+}
+
+function Table({
+  data,
+  setData,
+}: {
+  data: Categories;
+  setData: React.Dispatch<React.SetStateAction<Categories>>;
+}) {
+  const [schema, setSchema] = React.useState({
+    mapping: {
+      _id: { kind: "string", hidden: true },
+      name: { kind: "string", hidden: false },
+      description: { kind: "string", hidden: false },
+      tags: { kind: "tag", hidden: false },
+      "shelf life, weeks": { kind: "number", hidden: false },
+      perishable: { kind: "boolean", hidden: false },
+      staple: { kind: "boolean", hidden: false },
+    },
+    meta: {},
+  });
+
+  const visibleColumns = React.useMemo(() => {
+    return Object.entries(schema.mapping)
+      .filter(([key, value]) => {
+        return value.hidden === false;
+      })
+      .map(([key, value]) => key);
+  }, [schema]);
+
+  const handleChange = (value: string, columnName: string, rowId: string) => {
+    setData(
+      produce(data, (draftData: { [x: string]: { [x: string]: string } }) => {
+        const row = data.findIndex((d) => d._id === rowId);
+        draftData[row][columnName] = value;
+      })
+    );
+  };
+  const addRow = () => {
+    const id = short().new();
+    const proto: { [key: string]: any } = Object.fromEntries(
+      Object.entries(schema.mapping).map(([key, value]) => [
+        key,
+        key === "_id" ? id : undefined,
+      ])
+    );
+    setData((prevData: any) => [...prevData, proto]);
+  };
+  const deleteRow = (rowId: string) => {
+    const row = data.findIndex((d) => d._id === rowId);
+    setData(
+      produce(data, (draftData: any[]) => {
+        draftData.splice(row, 1);
+      })
+    );
+  };
+  return (
+    <div>
+      <table>
+        <thead>
+          <tr>
+            {visibleColumns.map((name) => {
+              return <td>{name}</td>;
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((d) => {
+            return (
+              <tr key={d._id}>
+                {visibleColumns.map((name) => (
+                  <td>
+                    <input
+                      type="text"
+                      value={d[name]}
+                      onChange={(evt) =>
+                        handleChange(evt.currentTarget.value, name, d._id)
+                      }
+                    />
+                  </td>
+                ))}
+                <td>
+                  <button onClick={() => deleteRow(d._id)}>X</button>
+                </td>
+              </tr>
+            );
+          })}
+          <tr>
+            <td colSpan={visibleColumns.length}>
+              <button onClick={addRow}>add new row</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
