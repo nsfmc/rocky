@@ -79,35 +79,63 @@ function App() {
     };
   }, []);
 
-  const persist = React.useCallback(() => {
+  const persist = React.useCallback(async (newData) => {
     console.log("persisting db");
     if (db && db.put) {
+      const oldVersion = await db.get('categories')
+      try {
+        const nextDoc = await db.put({
+          ...oldVersion,
+          categories: newData,
+        });
+        console.log(`updated doc with version ${nextDoc.rev}`)
+      } catch (err) {
+        console.error(err);
+        console.error('failed to update the document :(')
+      }
     }
   }, [data]);
 
+  const [shouldPersist, setShouldPersist] = React.useState(false);
+  React.useEffect(() => {
+    if (shouldPersist){ 
+      persist(data);
+      setShouldPersist(false);
+    }
+  }, [shouldPersist])
+
+  const handleSave = React.useCallback(() => {
+    setShouldPersist(true);
+  }, []);
+
   return (
     <Suspense fallback={<div>db is loading</div>}>
-      <DBLoader dataResource={categoryData} />
-      <Table data={data} setData={setData} />
+      <DBLoader dataResource={categoryData} refreshLocalData={setData} />
+      <Table data={data} setData={setData} triggerSave={setShouldPersist} />
     </Suspense>
   );
 }
 
 function DBLoader({
   dataResource,
+  refreshLocalData,
 }: {
   dataResource: UsePouch.Resource<CategoryData>;
+  refreshLocalData: any,
 }) {
   let data = dataResource.read();
+  // data && refreshLocalData(data.categories)
   return <div>data items: {data.categories.length}</div>;
 }
 
 function Table({
   data,
   setData,
+  triggerSave,
 }: {
   data: Categories;
   setData: React.Dispatch<React.SetStateAction<Categories>>;
+  triggerSave: any,
 }) {
   const [schema, setSchema] = React.useState({
     mapping: {
@@ -175,6 +203,7 @@ function Table({
                     <input
                       type="text"
                       value={d[name]}
+                      onBlur={triggerSave}
                       onChange={(evt) =>
                         handleChange(evt.currentTarget.value, name, d._id)
                       }
