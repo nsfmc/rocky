@@ -56,28 +56,28 @@ let categoryData: UsePouch.Resource<CategoryData>;
 categoryData = UsePouch.readDefaultValue(db, "categories", fakeData);
 
 function App() {
-  const [data, setData] = React.useState<Categories>(fakeData.categories);
+  const [data, setData] = React.useState(categoryData);
 
-  React.useEffect(() => {
-    const asyncDbPrep = async () => {
-      let storedDoc: {
-        _id: "categories";
-        _rev: string;
-        data: Categories;
-      };
-      try {
-        storedDoc = await db.get("categories");
-        setData(storedDoc.data);
-      } catch (err) {
-        console.error("no category data found, seeding with test data");
-        setData(fakeData.categories);
-        const created = await db.put({
-          id: "categories",
-          data: fakeData,
-        });
-      }
-    };
-  }, []);
+  // React.useEffect(() => {
+  //   const asyncDbPrep = async () => {
+  //     let storedDoc: {
+  //       _id: "categories";
+  //       _rev: string;
+  //       data: Categories;
+  //     };
+  //     try {
+  //       storedDoc = await db.get("categories");
+  //       setData(storedDoc.data);
+  //     } catch (err) {
+  //       console.error("no category data found, seeding with test data");
+  //       setData(fakeData.categories);
+  //       const created = await db.put({
+  //         id: "categories",
+  //         data: fakeData,
+  //       });
+  //     }
+  //   };
+  // }, []);
 
   const persist = React.useCallback(async (newData) => {
     console.log("persisting db");
@@ -110,8 +110,8 @@ function App() {
 
   return (
     <Suspense fallback={<div>db is loading</div>}>
-      <DBLoader dataResource={categoryData} refreshLocalData={setData} />
-      <Table data={data} setData={setData} triggerSave={setShouldPersist} />
+      {/* <DBLoader dataResource={categoryData} refreshLocalData={setData} /> */}
+      <Table resource={data} triggerSave={setShouldPersist} />
     </Suspense>
   );
 }
@@ -129,14 +129,15 @@ function DBLoader({
 }
 
 function Table({
-  data,
-  setData,
+  resource,
+  // setData,
   triggerSave,
 }: {
-  data: Categories;
-  setData: React.Dispatch<React.SetStateAction<Categories>>;
+  resource: UsePouch.Resource<CategoryData>;
+  // setData?: React.Dispatch<React.SetStateAction<Categories>>;
   triggerSave: any,
 }) {
+  const [data, setData] = React.useState<CategoryData>(resource.read());
   const [schema, setSchema] = React.useState({
     mapping: {
       _id: { kind: "string", hidden: true },
@@ -158,11 +159,13 @@ function Table({
       .map(([key, value]) => key);
   }, [schema]);
 
-  const handleChange = (value: string, columnName: string, rowId: string) => {
+  const handleChange = (value: any, columnName: string, rowId: string) => {
     setData(
-      produce(data, (draftData: { [x: string]: { [x: string]: string } }) => {
-        const row = data.findIndex((d) => d._id === rowId);
-        draftData[row][columnName] = value;
+      produce(data, (draftData) => {
+        const row = data.categories.findIndex((d) => d._id === rowId);
+        if (row>-1) {
+          draftData.categories[row][columnName] = value
+        }
       })
     );
   };
@@ -174,10 +177,12 @@ function Table({
         key === "_id" ? id : undefined,
       ])
     );
-    setData((prevData: any) => [...prevData, proto]);
+    setData(produce(data, draftData => {
+      draftData.categories.push(proto)
+    }));
   };
   const deleteRow = (rowId: string) => {
-    const row = data.findIndex((d) => d._id === rowId);
+    const row = data.categories.findIndex((d) => d._id === rowId);
     setData(
       produce(data, (draftData: any[]) => {
         draftData.splice(row, 1);
@@ -190,20 +195,20 @@ function Table({
         <thead>
           <tr>
             {visibleColumns.map((name) => {
-              return <td>{name}</td>;
+              return <td key={name}>{name}</td>;
             })}
           </tr>
         </thead>
         <tbody>
-          {data.map((d) => {
+          {data.categories.map((d) => {
             return (
               <tr key={d._id}>
                 {visibleColumns.map((name) => (
-                  <td>
+                  <td key={name}>
                     <input
                       type="text"
                       value={d[name]}
-                      onBlur={triggerSave}
+                      // onBlur={triggerSave}
                       onChange={(evt) =>
                         handleChange(evt.currentTarget.value, name, d._id)
                       }
