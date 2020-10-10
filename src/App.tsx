@@ -103,7 +103,7 @@ function App() {
         }
       }
     },
-    [data]
+    []
   );
 
   const [shouldPersist, setShouldPersist] = React.useState(false);
