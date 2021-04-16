@@ -1,5 +1,5 @@
 import React, { SyntheticEvent, Suspense } from "react";
-import produce from "immer";
+import produce, { applyPatches } from "immer";
 import short from "short-uuid";
 import PouchDB from "pouchdb-browser";
 
@@ -63,48 +63,37 @@ let categoryData: UsePouch.Resource<CategoryData>;
 categoryData = UsePouch.readDefaultValue(db, "categories", fakeData);
 
 function App() {
-  const [data, setData] = React.useState(categoryData);
+  return <Suspense fallback={<div>db is loading</div>}>
+    <AppShell />
+  </Suspense>
+}
 
-  // React.useEffect(() => {
-  //   const asyncDbPrep = async () => {
-  //     let storedDoc: {
-  //       _id: "categories";
-  //       _rev: string;
-  //       data: Categories;
-  //     };
-  //     try {
-  //       storedDoc = await db.get("categories");
-  //       setData(storedDoc.data);
-  //     } catch (err) {
-  //       console.error("no category data found, seeding with test data");
-  //       setData(fakeData.categories);
-  //       const created = await db.put({
-  //         id: "categories",
-  //         data: fakeData,
-  //       });
-  //     }
-  //   };
-  // }, []);
-
-  const persist = React.useCallback(
-    async (newData) => {
-      console.log("persisting db");
-      if (db && db.put) {
-        const oldVersion = await db.get("categories");
-        try {
-          const nextDoc = await db.put({
-            ...oldVersion,
-            categories: newData,
-          });
-          console.log(`updated doc with version ${nextDoc.rev}`);
-        } catch (err) {
-          console.error(err);
-          console.error("failed to update the document :(");
-        }
+function AppShell() {
+  const resourceData  = categoryData.read();
+  const [data, setData] = React.useState(resourceData);
+  console.log('usestate success', data.categories)
+  const persist = React.useCallback(async (newData) => {
+    console.log("persisting db");
+    if (db && db.put) {
+      const oldVersion = await db.get("categories");
+      
+      console.log({oldVersion})
+      console.log({
+        ...oldVersion,
+        categories: newData.categories,
+      })
+      try {
+        const nextDoc = await db.put({
+          ...oldVersion,
+          categories: newData.categories,
+        });
+        console.log(`updated doc with version ${nextDoc.rev}`);
+      } catch (err) {
+        console.error(err);
+        console.error("failed to update the document :(");
       }
-    },
-    []
-  );
+    }
+  }, [db]);
 
   const [shouldPersist, setShouldPersist] = React.useState(false);
   React.useEffect(() => {
@@ -112,17 +101,16 @@ function App() {
       persist(data);
       setShouldPersist(false);
     }
-  }, [shouldPersist]);
+  }, [shouldPersist, data]);
 
   const handleSave = React.useCallback(() => {
     setShouldPersist(true);
   }, []);
 
   return (
-    <Suspense fallback={<div>db is loading</div>}>
-      {/* <DBLoader dataResource={categoryData} refreshLocalData={setData} /> */}
-      <Table resource={data} triggerSave={setShouldPersist} />
-    </Suspense>
+    <>
+      <Table data={data} setData={setData} triggerSave={setShouldPersist} />
+    </>
   );
 }
 
@@ -139,18 +127,20 @@ function DBLoader({
 }
 
 function Table({
-  resource,
-  // setData,
+  // resource,
+  data,
+  setData,
   triggerSave,
 }: {
-  resource: UsePouch.Resource<CategoryData>;
-  // setData?: React.Dispatch<React.SetStateAction<Categories>>;
+  // resource: UsePouch.Resource<CategoryData>;
+  setData: React.Dispatch<React.SetStateAction<CategoryData>>;
+  data: CategoryData;
   triggerSave: any;
 }) {
-  const [data, setData] = React.useState<CategoryData>(resource.read());
   React.useEffect(() => {
     console.log("somebody updated the database");
   }, [data._rev]);
+
   const [schema, setSchema] = React.useState({
     mapping: {
       _id: { kind: "string", hidden: true },
@@ -229,7 +219,7 @@ function Table({
                     <input
                       type="text"
                       value={d[name]}
-                      // onBlur={triggerSave}
+                      onBlur={triggerSave}
                       onChange={(evt) =>
                         handleChange(evt.currentTarget.value, name, d._id)
                       }

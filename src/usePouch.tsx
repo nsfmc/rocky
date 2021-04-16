@@ -83,35 +83,39 @@ export function readDefaultValue<T>(
 ): Resource<T> {
   let result: T;
   let status = Status.Pending;
+  let suspense: any;
 
-  let suspense = db.get<T>(docId).then(
-    (doc) => {
-      console.log(`found doc with id: ${docId}`);
-      status = Status.Success;
-      result = doc;
-      console.log({ status, result });
-    },
-    (err) => {
-      console.warn("pouch error: ", err);
-      result = err;
-      status = Status.Error;
-      if (err.status === 404) {
-        return db
-          .put<T>({ _id: docId, ...state })
-          .then((res) => {
-            console.log(`put succeded for ${docId}`);
-            result = state;
-            status = Status.Success;
-          });
-      } else {
-        console.error("unknown error", err);
+  try {
+    suspense = db.get<T>(docId).then(
+      (doc) => {
+        status = Status.Success;
+        result = doc;
+        console.log({ status, result });
+      },
+      (err) => {
+        console.warn("pouch error: ", err);
+        result = err;
+        status = Status.Error;
+        if (err.status === 404) {
+          return db
+            .put<T>({ _id: docId, ...state })
+            .then((res) => {
+              result = state;
+              status = Status.Success;
+            });
+        } else {
+          console.error("unknown error", err);
+        }
       }
-    }
-  );
+    );  
+  } catch (err) {
+    status = Status.Error;
+    result = err
+  }
 
   return {
     read() {
-      console.log(`read: status(${status}) result`, result);
+      // console.log(`read: status(${status}) result`, result);
       switch (status) {
         case Status.Pending:
           throw suspense;
